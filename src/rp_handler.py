@@ -1,7 +1,9 @@
+import base64
 import os
 import sys
 import shutil
 import logging
+import tempfile
 
 from dotenv import load_dotenv, find_dotenv
 from huggingface_hub import login, whoami
@@ -92,14 +94,27 @@ def run(job):
     if "errors" in validated:
         return {"error": validated["errors"]}
 
-    # ------------- 1) download primary audio ------------------------
+    # ------------- 1) resolve audio input (URL or base64) -----------
+    audio_input = job_input["audio_file"]
     try:
-        audio_file_path = download_files_from_urls(job_id,
-                                                   [job_input["audio_file"]])[0]
-        logger.debug(f"Audio downloaded → {audio_file_path}")
+        if "://" in audio_input:
+            # Standard URL — download as before
+            audio_file_path = download_files_from_urls(job_id, [audio_input])[0]
+            logger.debug(f"Audio downloaded → {audio_file_path}")
+        else:
+            # Treat as base64-encoded audio data
+            # Strip optional data-URI prefix (e.g. "data:audio/wav;base64,")
+            if "," in audio_input:
+                audio_input = audio_input.split(",", 1)[1]
+            audio_bytes = base64.b64decode(audio_input)
+            os.makedirs(f"/jobs/{job_id}", exist_ok=True)
+            audio_file_path = f"/jobs/{job_id}/audio_input"
+            with open(audio_file_path, "wb") as f:
+                f.write(audio_bytes)
+            logger.debug(f"Audio decoded from base64 → {audio_file_path} ({len(audio_bytes)} bytes)")
     except Exception as e:
-        logger.error("Audio download failed", exc_info=True)
-        return {"error": f"audio download: {e}"}
+        logger.error("Audio input failed", exc_info=True)
+        return {"error": f"audio input: {e}"}
 
     # ------------- 2) download speaker profiles (optional) ----------
     speaker_profiles = job_input.get("speaker_samples", [])
