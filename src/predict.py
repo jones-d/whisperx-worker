@@ -13,6 +13,7 @@ import math
 import os
 import shutil
 import whisperx
+import whisperx.alignment
 import tempfile
 import time
 import torch
