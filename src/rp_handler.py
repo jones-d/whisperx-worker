@@ -170,7 +170,7 @@ def run(job):
     # 4) speaker verification (optional)
     if embeddings:
         try:
-            output_dict["segments"] = identify_speakers_on_segments(
+            output_dict["segments"], output_dict["speaker_map"] = identify_speakers_on_segments(
                 segments=output_dict["segments"],
                 audio_path=audio_file_path,
                 enrolled=embeddings,

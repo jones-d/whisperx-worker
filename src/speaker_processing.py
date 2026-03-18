@@ -393,7 +393,7 @@ def identify_speakers_on_segments(
     audio_path: str,
     enrolled: dict[str, np.ndarray],
     threshold: float = 0.55
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """
     Match diarized speakers to enrolled profiles using centroid embeddings.
 
@@ -403,6 +403,10 @@ def identify_speakers_on_segments(
     4. Greedy 1:1 assignment with threshold — only relabel confident matches
 
     Modifies segments in-place: replaces 'speaker' with enrolled name where matched.
+    Preserves 'original_speaker' on every segment for downstream correction.
+
+    Returns (segments, speaker_map) where speaker_map maps each diarized label
+    to {"matched_name": str|null, "similarity": float}.
     """
     enrolled_names = list(enrolled.keys())
     enrolled_mat = np.stack([enrolled[n] for n in enrolled_names])
@@ -410,10 +414,14 @@ def identify_speakers_on_segments(
     # Convert to WAV to avoid PySoundFile fallback warnings
     wav_audio_path, was_converted = _ensure_wav(audio_path)
 
+    # Preserve original diarized label on every segment
+    for seg in segments:
+        seg["original_speaker"] = seg.get("speaker", "Unknown")
+
     # Step 1: compute embedding for each segment, group by diarized label
     speaker_embeddings = defaultdict(list)  # SPEAKER_XX → [emb, emb, …]
     for seg in segments:
-        spk = seg.get("speaker")
+        spk = seg.get("original_speaker")
         if not spk:
             continue
         duration = seg["end"] - seg["start"]
@@ -458,11 +466,32 @@ def identify_speakers_on_segments(
 
     logger.info(f"Speaker matching: {', '.join(f'{k} → {v[0]} ({v[1]:.3f})' for k, v in relabel_map.items()) or 'no matches above threshold'}")
 
+    # Build speaker_map: every diarized label gets an entry
+    # Find best similarity per diarized speaker (even if below threshold)
+    speaker_map = {}
+    all_diarized_labels = set(seg.get("original_speaker") for seg in segments if seg.get("original_speaker"))
+    for lbl in all_diarized_labels:
+        if lbl in relabel_map:
+            speaker_map[lbl] = {
+                "matched_name": relabel_map[lbl][0],
+                "similarity": relabel_map[lbl][1],
+            }
+        else:
+            # Find best score even though below threshold
+            best_sim = max(
+                (scores.get((lbl, name), 0.0) for name in enrolled_names),
+                default=0.0,
+            )
+            speaker_map[lbl] = {
+                "matched_name": None,
+                "similarity": float(best_sim),
+            }
+
     # Step 5: apply relabeling
     for seg in segments:
-        spk = seg.get("speaker")
+        spk = seg.get("original_speaker")
         if spk in relabel_map:
             seg["speaker"] = relabel_map[spk][0]
             seg["similarity"] = relabel_map[spk][1]
 
-    return segments
+    return segments, speaker_map
