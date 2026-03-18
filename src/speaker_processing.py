@@ -442,16 +442,25 @@ def relabel_speakers_by_avg_similarity(segments: list[dict]) -> list[dict]:
             grouped[spk].append((sid, sim))
 
     # Step 2: compute average similarity for each speaker_id within each group
-    relabel_map = {}
+    # Build (orig_speaker, candidate_name) → avg_similarity
+    all_scores = {}
     for orig_spk, samples in grouped.items():
         scores = defaultdict(list)
         for sid, sim in samples:
             scores[sid].append(sim)
-        avg = {sid: sum(vals)/len(vals) for sid, vals in scores.items()}
-        best_match = max(avg, key=avg.get)
-        relabel_map[orig_spk] = best_match
+        for sid, vals in scores.items():
+            all_scores[(orig_spk, sid)] = sum(vals) / len(vals)
 
-    # Step 3: apply relabeling
+    # Step 3: greedy unique assignment — best avg similarity wins, no duplicates
+    relabel_map = {}
+    used_names = set()
+    for (orig_spk, sid), avg in sorted(all_scores.items(), key=lambda x: -x[1]):
+        if orig_spk in relabel_map or sid in used_names:
+            continue
+        relabel_map[orig_spk] = sid
+        used_names.add(sid)
+
+    # Step 4: apply relabeling
     for seg in segments:
         spk = seg.get("speaker")
         if spk in relabel_map:

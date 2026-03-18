@@ -174,7 +174,7 @@ def run(job):
                 segments=output_dict["segments"],
                 audio_path=audio_file_path,
                 enrolled=embeddings,
-                threshold=0.1  # Adjust threshold as needed
+                threshold=0.55
             )
             #output_dict["segments"] = segments_with_speakers
             segments_with_final_labels = relabel_speakers_by_avg_similarity(segments_with_speakers)
