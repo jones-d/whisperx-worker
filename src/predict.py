@@ -321,7 +321,7 @@ def diarize(audio, result, debug, huggingface_access_token, min_speakers, max_sp
 
     from whisperx.diarize import DiarizationPipeline
     diarize_model = DiarizationPipeline(
-        model_name='pyannote/speaker-diarization-community-1',
+        model_name='pyannote/speaker-diarization-3.1',
         token=huggingface_access_token,
         device=device,
     )

@@ -15,10 +15,10 @@ from runpod.serverless.utils import download_files_from_urls, rp_cleanup
 
 from rp_schema import INPUT_VALIDATIONS
 from predict import Predictor, Output
-from speaker_profiles import load_embeddings, relabel
 from speaker_processing import (
     process_diarized_output, enroll_profiles, identify_speakers_on_segments,
     load_known_speakers_from_samples, identify_speaker, relabel_speakers_by_avg_similarity,
+    _SPEAKER_EMBEDDING_CACHE,
 )
 
 # ---------------------------------------------------------------------------
@@ -89,10 +89,17 @@ def run(job):
     job_id     = job["id"]
     job_input  = job["input"]
 
+    # Clear speaker embedding cache from previous jobs
+    _SPEAKER_EMBEDDING_CACHE.clear()
+
     # ------------- validate basic schema ----------------------------
     validated = validate(job_input, INPUT_VALIDATIONS)
     if "errors" in validated:
-        return {"error": validated["errors"]}
+        # Flatten error list to string — RunPod SDK can't serialize list values
+        errors = validated["errors"]
+        if isinstance(errors, (list, dict)):
+            errors = str(errors)
+        return {"error": errors}
 
     # ------------- 1) resolve audio input (URL or base64) -----------
     audio_input = job_input["audio_file"]
@@ -108,7 +115,7 @@ def run(job):
                 audio_input = audio_input.split(",", 1)[1]
             audio_bytes = base64.b64decode(audio_input)
             os.makedirs(f"/jobs/{job_id}", exist_ok=True)
-            audio_file_path = f"/jobs/{job_id}/audio_input"
+            audio_file_path = f"/jobs/{job_id}/audio_input.wav"
             with open(audio_file_path, "wb") as f:
                 f.write(audio_bytes)
             logger.debug(f"Audio decoded from base64 → {audio_file_path} ({len(audio_bytes)} bytes)")

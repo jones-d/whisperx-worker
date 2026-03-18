@@ -13,7 +13,7 @@ def _get_embed():
     if _EMBED is None:
         from pyannote.audio import Model, Inference
         hf_token = os.environ.get("HF_TOKEN")
-        raw_model = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
+        raw_model = Model.from_pretrained("pyannote/embedding", token=hf_token)
         _EMBED = Inference(raw_model, device=_DEVICE)
     return _EMBED
 

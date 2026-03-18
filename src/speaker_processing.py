@@ -32,7 +32,7 @@ def _get_embed_model():
     if _EMBED_MODEL is None:
         from pyannote.audio import Model, Inference
         hf_token = os.getenv("HF_TOKEN")
-        raw = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
+        raw = Model.from_pretrained("pyannote/embedding", token=hf_token)
         _EMBED_MODEL = Inference(raw, device=DEVICE)
     return _EMBED_MODEL
 
@@ -373,6 +373,21 @@ def enroll_profiles(profiles: list[dict]) -> dict[str, np.ndarray]:
         embeddings[p["name"]] = embed_waveform(wav, sr)
     return embeddings
 
+def _ensure_wav(audio_path: str) -> tuple[str, bool]:
+    """Convert audio to WAV if needed (avoids PySoundFile fallback warnings).
+    Returns (wav_path, was_converted)."""
+    import subprocess
+    if audio_path.lower().endswith('.wav'):
+        return audio_path, False
+    wav_path = audio_path + '.converted.wav'
+    subprocess.run(
+        ['ffmpeg', '-i', audio_path, '-ar', '16000', '-ac', '1',
+         '-c:a', 'pcm_s16le', '-y', wav_path],
+        check=True, capture_output=True,
+    )
+    return wav_path, True
+
+
 def identify_speakers_on_segments(
     segments: list[dict],
     audio_path: str,
@@ -387,8 +402,11 @@ def identify_speakers_on_segments(
     names = list(enrolled.keys())
     mat = np.stack([enrolled[n] for n in names])
 
+    # Convert to WAV to avoid PySoundFile fallback warnings on every segment
+    wav_audio_path, was_converted = _ensure_wav(audio_path)
+
     for seg in segments:
-        wav, sr = librosa.load(audio_path, sr=16000, mono=True,
+        wav, sr = librosa.load(wav_audio_path, sr=16000, mono=True,
                                offset=seg["start"],
                                duration=seg["end"] - seg["start"])
         emb = embed_waveform(wav, sr)
@@ -400,6 +418,11 @@ def identify_speakers_on_segments(
         else:
             seg["speaker_id"] = "Unknown"
             seg["similarity"] = float(sims.max())
+
+    # Clean up converted WAV
+    if was_converted and os.path.exists(wav_audio_path):
+        os.unlink(wav_audio_path)
+
     return segments
 
 
