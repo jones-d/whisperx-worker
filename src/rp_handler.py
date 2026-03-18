@@ -17,7 +17,7 @@ from rp_schema import INPUT_VALIDATIONS
 from predict import Predictor, Output
 from speaker_processing import (
     process_diarized_output, enroll_profiles, identify_speakers_on_segments,
-    load_known_speakers_from_samples, identify_speaker, relabel_speakers_by_avg_similarity,
+    load_known_speakers_from_samples, identify_speaker,
     _SPEAKER_EMBEDDING_CACHE,
 )
 
@@ -170,15 +170,12 @@ def run(job):
     # 4) speaker verification (optional)
     if embeddings:
         try:
-            segments_with_speakers = identify_speakers_on_segments(
+            output_dict["segments"] = identify_speakers_on_segments(
                 segments=output_dict["segments"],
                 audio_path=audio_file_path,
                 enrolled=embeddings,
                 threshold=0.55
             )
-            #output_dict["segments"] = segments_with_speakers
-            segments_with_final_labels = relabel_speakers_by_avg_similarity(segments_with_speakers)
-            output_dict["segments"] = segments_with_final_labels
             logger.info("Speaker identification completed successfully.")
         except Exception as e:
             logger.error("Speaker identification failed", exc_info=True)

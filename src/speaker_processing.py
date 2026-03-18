@@ -392,78 +392,77 @@ def identify_speakers_on_segments(
     segments: list[dict],
     audio_path: str,
     enrolled: dict[str, np.ndarray],
-    threshold: float = 0.1
+    threshold: float = 0.55
 ) -> list[dict]:
     """
-    Identify speakers on diarized segments using enrolled embeddings.
-    segments: [{"start": 0.00, "end": 2.34, "speaker": "..."} …]
-    Modifies each dict in-place, adding 'speaker_id' and 'similarity'.
-    """
-    names = list(enrolled.keys())
-    mat = np.stack([enrolled[n] for n in names])
+    Match diarized speakers to enrolled profiles using centroid embeddings.
 
-    # Convert to WAV to avoid PySoundFile fallback warnings on every segment
+    1. Group segments by diarized label (SPEAKER_00, SPEAKER_01, …)
+    2. Compute one centroid embedding per diarized speaker (avg of segment embeddings)
+    3. Compare centroids to enrolled speakers — one clean match per speaker
+    4. Greedy 1:1 assignment with threshold — only relabel confident matches
+
+    Modifies segments in-place: replaces 'speaker' with enrolled name where matched.
+    """
+    enrolled_names = list(enrolled.keys())
+    enrolled_mat = np.stack([enrolled[n] for n in enrolled_names])
+
+    # Convert to WAV to avoid PySoundFile fallback warnings
     wav_audio_path, was_converted = _ensure_wav(audio_path)
 
+    # Step 1: compute embedding for each segment, group by diarized label
+    speaker_embeddings = defaultdict(list)  # SPEAKER_XX → [emb, emb, …]
     for seg in segments:
+        spk = seg.get("speaker")
+        if not spk:
+            continue
+        duration = seg["end"] - seg["start"]
+        if duration < 0.5:  # skip very short segments — noisy embeddings
+            continue
         wav, sr = librosa.load(wav_audio_path, sr=16000, mono=True,
-                               offset=seg["start"],
-                               duration=seg["end"] - seg["start"])
+                               offset=seg["start"], duration=duration)
+        if len(wav) < sr * 0.5:  # less than 0.5s of audio
+            continue
         emb = embed_waveform(wav, sr)
-        sims = 1 - cdist(emb[None,:], mat, metric="cosine")[0]
-        best = sims.argmax()
-        if sims[best] >= threshold:
-            seg["speaker_id"] = names[best]
-            seg["similarity"] = float(sims[best])
-        else:
-            seg["speaker_id"] = "Unknown"
-            seg["similarity"] = float(sims.max())
+        speaker_embeddings[spk].append(emb)
 
     # Clean up converted WAV
     if was_converted and os.path.exists(wav_audio_path):
         os.unlink(wav_audio_path)
 
-    return segments
+    # Step 2: compute centroid per diarized speaker
+    centroids = {}
+    for spk, embs in speaker_embeddings.items():
+        centroid = np.mean(embs, axis=0)
+        centroid = centroid / np.linalg.norm(centroid)  # L2 normalise
+        centroids[spk] = centroid
 
+    # Step 3: compare each centroid to all enrolled speakers
+    # Build (diarized_speaker, enrolled_name) → similarity
+    scores = {}
+    for spk, centroid in centroids.items():
+        sims = 1 - cdist(centroid[None, :], enrolled_mat, metric="cosine")[0]
+        for i, name in enumerate(enrolled_names):
+            scores[(spk, name)] = float(sims[i])
 
-def relabel_speakers_by_avg_similarity(segments: list[dict]) -> list[dict]:
-    """
-    For each original diarized speaker label, assign the most likely speaker_id
-    based on the highest average similarity across segments.
-    Updates segments in-place: sets final 'speaker' name accordingly.
-    """
-    # Step 1: collect all similarities per diarized label
-    grouped = defaultdict(list)
-    for seg in segments:
-        spk = seg.get("speaker")
-        sim = seg.get("similarity")
-        sid = seg.get("speaker_id")
-        if spk and sim is not None and sid:
-            grouped[spk].append((sid, sim))
-
-    # Step 2: compute average similarity for each speaker_id within each group
-    # Build (orig_speaker, candidate_name) → avg_similarity
-    all_scores = {}
-    for orig_spk, samples in grouped.items():
-        scores = defaultdict(list)
-        for sid, sim in samples:
-            scores[sid].append(sim)
-        for sid, vals in scores.items():
-            all_scores[(orig_spk, sid)] = sum(vals) / len(vals)
-
-    # Step 3: greedy unique assignment — best avg similarity wins, no duplicates
+    # Step 4: greedy 1:1 assignment — highest similarity first, threshold gate
     relabel_map = {}
     used_names = set()
-    for (orig_spk, sid), avg in sorted(all_scores.items(), key=lambda x: -x[1]):
-        if orig_spk in relabel_map or sid in used_names:
+    for (spk, name), sim in sorted(scores.items(), key=lambda x: -x[1]):
+        if spk in relabel_map or name in used_names:
             continue
-        relabel_map[orig_spk] = sid
-        used_names.add(sid)
+        if sim < threshold:
+            break  # sorted descending — all remaining are below threshold
+        relabel_map[spk] = (name, sim)
+        used_names.add(name)
 
-    # Step 4: apply relabeling
+    logger.info(f"Speaker matching: {', '.join(f'{k} → {v[0]} ({v[1]:.3f})' for k, v in relabel_map.items()) or 'no matches above threshold'}")
+
+    # Step 5: apply relabeling
     for seg in segments:
         spk = seg.get("speaker")
         if spk in relabel_map:
-            seg["speaker"] = relabel_map[spk]
+            seg["speaker"] = relabel_map[spk][0]
+            seg["similarity"] = relabel_map[spk][1]
 
     return segments
