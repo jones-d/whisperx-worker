@@ -4,6 +4,7 @@ import sys
 import shutil
 import logging
 import tempfile
+import warnings
 
 from dotenv import load_dotenv, find_dotenv
 from huggingface_hub import login, whoami
@@ -20,6 +21,23 @@ from speaker_processing import (
     load_known_speakers_from_samples, identify_speaker,
     _SPEAKER_EMBEDDING_CACHE,
 )
+
+# ---------------------------------------------------------------------------
+# Performance: enable TF32 for faster matmul on Ampere+ GPUs (L40S, A100, H100)
+# Safe for transcription — negligible accuracy impact, significant speed gain
+# ---------------------------------------------------------------------------
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+# ---------------------------------------------------------------------------
+# Suppress known harmless warnings that spam every job
+# ---------------------------------------------------------------------------
+warnings.filterwarnings("ignore", message=".*torchaudio._backend.list_audio_backends has been deprecated.*")
+warnings.filterwarnings("ignore", message=".*ModelCheckpoint.*callback states.*colliding.*")
+warnings.filterwarnings("ignore", message=".*Model has been trained with a task-dependent loss function.*")
+warnings.filterwarnings("ignore", message=".*std\\(\\): degrees of freedom is <= 0.*")
+warnings.filterwarnings("ignore", message=".*Redirecting import of pytorch_lightning.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="pyannote.audio.utils.reproducibility")
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -144,7 +162,7 @@ def run(job):
         "language_detection_min_prob": job_input.get("language_detection_min_prob", 0),
         "language_detection_max_tries": job_input.get("language_detection_max_tries", 5),
         "initial_prompt"           : job_input.get("initial_prompt"),
-        "batch_size"               : job_input.get("batch_size", 64),
+        "batch_size"               : job_input.get("batch_size", 128),
         "temperature"              : job_input.get("temperature", 0),
         "vad_onset"                : job_input.get("vad_onset", 0.50),
         "vad_offset"               : job_input.get("vad_offset", 0.363),

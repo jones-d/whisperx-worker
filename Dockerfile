@@ -32,9 +32,11 @@ COPY builder /builder
 RUN chmod +x /builder/download_models.sh
 RUN --mount=type=secret,id=hf_token /builder/download_models.sh
 
-# Permanently upgrade Lightning checkpoint to silence startup warning
+# Permanently upgrade Lightning checkpoints to eliminate per-job upgrade overhead
 RUN python3 -m lightning.pytorch.utilities.upgrade_checkpoint \
     /usr/local/lib/python3.12/dist-packages/whisperx/assets/pytorch_model.bin || true
+RUN find /root/.cache/huggingface -name "pytorch_model.bin" -exec \
+    python3 -m lightning.pytorch.utilities.upgrade_checkpoint {} \; 2>/dev/null || true
 
 # Copy source code
 COPY src .
