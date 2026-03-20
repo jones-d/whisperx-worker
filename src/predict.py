@@ -179,6 +179,35 @@ class Predictor(BasePredictor):
                 elapsed_time = time.time_ns() / 1e6 - start_time
                 print(f"Duration to load model: {elapsed_time:.2f} ms")
 
+            # --- Auto-tune batch_size based on available VRAM ---
+            # Diarization + speaker verification load pyannote models later,
+            # so reserve headroom by capping batch_size now.
+            effective_batch_size = batch_size
+            try:
+                free_vram, total_vram = torch.cuda.mem_get_info()
+                free_gb = free_vram / (1024 ** 3)
+                if debug:
+                    print(f"VRAM: {free_gb:.1f} GB free / {total_vram / (1024**3):.1f} GB total")
+                if diarization or speaker_verification:
+                    # Reserve ~6 GB for pyannote diarization + speaker embeddings
+                    if free_gb < 20:
+                        effective_batch_size = min(effective_batch_size, 8)
+                    elif free_gb < 30:
+                        effective_batch_size = min(effective_batch_size, 16)
+                    else:
+                        effective_batch_size = min(effective_batch_size, 32)
+                else:
+                    if free_gb < 12:
+                        effective_batch_size = min(effective_batch_size, 16)
+            except Exception:
+                # If VRAM query fails, be conservative
+                if diarization or speaker_verification:
+                    effective_batch_size = min(effective_batch_size, 16)
+
+            if effective_batch_size != batch_size:
+                logger.info(f"Adjusted batch_size {batch_size} → {effective_batch_size} "
+                            f"(diarization={diarization}, speaker_verification={speaker_verification})")
+
             start_time = time.time_ns() / 1e6
 
             audio = whisperx.load_audio(audio_file)
@@ -189,12 +218,29 @@ class Predictor(BasePredictor):
 
             start_time = time.time_ns() / 1e6
 
-            result = model.transcribe(audio, batch_size=batch_size)
+            # --- Transcribe with OOM retry: halve batch_size on CUDA OOM ---
+            result = None
+            attempts = 0
+            while effective_batch_size >= 1:
+                attempts += 1
+                try:
+                    result = model.transcribe(audio, batch_size=effective_batch_size)
+                    break
+                except torch.cuda.OutOfMemoryError:
+                    logger.warning(f"CUDA OOM at batch_size={effective_batch_size}, "
+                                   f"retrying with {effective_batch_size // 2}")
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    effective_batch_size = effective_batch_size // 2
+                    if effective_batch_size < 1:
+                        raise RuntimeError("CUDA OOM even at batch_size=1")
+
             detected_language = result["language"]
 
             if debug:
                 elapsed_time = time.time_ns() / 1e6 - start_time
-                print(f"Duration to transcribe: {elapsed_time:.2f} ms")
+                print(f"Duration to transcribe: {elapsed_time:.2f} ms "
+                      f"(batch_size={effective_batch_size}, attempts={attempts})")
 
             gc.collect()
             torch.cuda.empty_cache()

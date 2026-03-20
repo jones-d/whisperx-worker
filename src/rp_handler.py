@@ -162,7 +162,7 @@ def run(job):
         "language_detection_min_prob": job_input.get("language_detection_min_prob", 0),
         "language_detection_max_tries": job_input.get("language_detection_max_tries", 5),
         "initial_prompt"           : job_input.get("initial_prompt"),
-        "batch_size"               : job_input.get("batch_size", 128),
+        "batch_size"               : job_input.get("batch_size", 64),
         "temperature"              : job_input.get("temperature", 0),
         "vad_onset"                : job_input.get("vad_onset", 0.50),
         "vad_offset"               : job_input.get("vad_offset", 0.363),
