@@ -125,12 +125,17 @@ class Predictor(BasePredictor):
                             "optional 'name' and 'file_path'. If 'name' is not provided, the file name (without "
                             "extension) is used. If 'file_path' is provided, it will be used directly.",
                 default=[]
+            ),
+            hotwords: str = Input(
+                description="Hotwords/hint phrases to boost recognition of specific words",
+                default=None
             )
     ) -> Output:
         with torch.inference_mode():
             asr_options = {
                 "temperatures": [temperature],
-                "initial_prompt": initial_prompt
+                "initial_prompt": initial_prompt,
+                "hotwords": hotwords,
             }
 
             vad_options = {

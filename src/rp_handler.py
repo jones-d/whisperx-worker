@@ -172,6 +172,7 @@ def run(job):
         "min_speakers"             : job_input.get("min_speakers"),
         "max_speakers"             : job_input.get("max_speakers"),
         "debug"                    : job_input.get("debug", False),
+        "hotwords"                 : job_input.get("hotwords"),
     }
 
     try:

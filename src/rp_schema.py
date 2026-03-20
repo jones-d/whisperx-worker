@@ -82,5 +82,10 @@ INPUT_VALIDATIONS = {
         'type': list,
         'required': False,
         'default': []
+    },
+    'hotwords': {
+        'type': str,
+        'required': False,
+        'default': None
     }
 }
