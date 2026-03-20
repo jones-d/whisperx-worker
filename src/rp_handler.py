@@ -164,6 +164,12 @@ def run(job):
         free_ecapa_model()
 
     # ------------- 3) call WhisperX / VAD / diarization -------------
+    _prompt = job_input.get("initial_prompt")
+    _hotwords = job_input.get("hotwords")
+    if _prompt or _hotwords:
+        logger.info(f"Vocab hints: initial_prompt={repr(_prompt[:80] + '...' if _prompt and len(_prompt) > 80 else _prompt)}, "
+                     f"hotwords={repr(_hotwords[:80] + '...' if _hotwords and len(_hotwords) > 80 else _hotwords)}")
+
     predict_input = {
         "audio_file"               : audio_file_path,
         "language"                 : job_input.get("language"),
