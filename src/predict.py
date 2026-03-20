@@ -179,34 +179,12 @@ class Predictor(BasePredictor):
                 elapsed_time = time.time_ns() / 1e6 - start_time
                 print(f"Duration to load model: {elapsed_time:.2f} ms")
 
-            # --- Auto-tune batch_size based on available VRAM ---
-            # Diarization + speaker verification load pyannote models later,
-            # so reserve headroom by capping batch_size now.
-            effective_batch_size = batch_size
-            try:
-                free_vram, total_vram = torch.cuda.mem_get_info()
-                free_gb = free_vram / (1024 ** 3)
-                if debug:
-                    print(f"VRAM: {free_gb:.1f} GB free / {total_vram / (1024**3):.1f} GB total")
-                if diarization or speaker_verification:
-                    # Reserve ~6 GB for pyannote diarization + speaker embeddings
-                    if free_gb < 20:
-                        effective_batch_size = min(effective_batch_size, 8)
-                    elif free_gb < 30:
-                        effective_batch_size = min(effective_batch_size, 16)
-                    else:
-                        effective_batch_size = min(effective_batch_size, 32)
-                else:
-                    if free_gb < 12:
-                        effective_batch_size = min(effective_batch_size, 16)
-            except Exception:
-                # If VRAM query fails, be conservative
-                if diarization or speaker_verification:
-                    effective_batch_size = min(effective_batch_size, 16)
-
-            if effective_batch_size != batch_size:
-                logger.info(f"Adjusted batch_size {batch_size} → {effective_batch_size} "
-                            f"(diarization={diarization}, speaker_verification={speaker_verification})")
+            if debug:
+                try:
+                    free_vram, total_vram = torch.cuda.mem_get_info()
+                    print(f"VRAM before transcribe: {free_vram / (1024**3):.1f} GB free / {total_vram / (1024**3):.1f} GB total")
+                except Exception:
+                    pass
 
             start_time = time.time_ns() / 1e6
 
@@ -218,8 +196,8 @@ class Predictor(BasePredictor):
 
             start_time = time.time_ns() / 1e6
 
-            # --- Transcribe with OOM retry: halve batch_size on CUDA OOM ---
-            result = None
+            # Transcribe with OOM retry: halve batch_size on CUDA OOM
+            effective_batch_size = batch_size
             attempts = 0
             while effective_batch_size >= 1:
                 attempts += 1

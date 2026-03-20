@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 import tempfile
@@ -35,6 +36,30 @@ def _get_embed_model():
         raw = Model.from_pretrained("pyannote/embedding", token=hf_token)
         _EMBED_MODEL = Inference(raw, device=DEVICE)
     return _EMBED_MODEL
+
+
+def free_embed_model():
+    """Free the pyannote embedding model from VRAM.
+    Call between pipeline stages so only one large model occupies the GPU at a time.
+    The model will be lazy-reloaded on next _get_embed_model() call."""
+    global _EMBED_MODEL
+    if _EMBED_MODEL is not None:
+        del _EMBED_MODEL
+        _EMBED_MODEL = None
+        gc.collect()
+        torch.cuda.empty_cache()
+        logger.info("Freed pyannote embedding model from VRAM")
+
+
+def free_ecapa_model():
+    """Free the SpeechBrain ECAPA model from VRAM."""
+    global _ECAPA
+    if _ECAPA is not None:
+        del _ECAPA
+        _ECAPA = None
+        gc.collect()
+        torch.cuda.empty_cache()
+        logger.info("Freed ECAPA model from VRAM")
 
 
 def _get_ecapa():

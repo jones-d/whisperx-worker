@@ -19,6 +19,7 @@ from predict import Predictor, Output
 from speaker_processing import (
     process_diarized_output, enroll_profiles, identify_speakers_on_segments,
     load_known_speakers_from_samples, identify_speaker,
+    free_embed_model, free_ecapa_model,
     _SPEAKER_EMBEDDING_CACHE,
 )
 
@@ -155,6 +156,13 @@ def run(job):
             logger.error("Enrollment failed", exc_info=True)
             embeddings = {}  # graceful degradation: proceed without profiles
 
+    # Free embedding model from VRAM before loading Whisper.
+    # Enrolled embeddings are numpy arrays on CPU — safe to free the GPU model.
+    # It will lazy-reload in step 4 (speaker verification) after Whisper is freed.
+    if speaker_profiles:
+        free_embed_model()
+        free_ecapa_model()
+
     # ------------- 3) call WhisperX / VAD / diarization -------------
     predict_input = {
         "audio_file"               : audio_file_path,
@@ -201,6 +209,10 @@ def run(job):
             output_dict["warning"] = f"Speaker identification skipped: {e}"
     else:
         logger.info("No enrolled embeddings available; skipping speaker identification.")
+
+    # Free speaker models from VRAM after verification is done
+    free_embed_model()
+    free_ecapa_model()
 
     # 4-Cleanup and return output_dict normally
     try:
