@@ -190,9 +190,14 @@ def load_known_speakers_from_samples(speaker_samples, huggingface_access_token=N
         elif url:
             try:
                 logger.debug(f"Downloading speaker sample '{name}' from URL: {url}")
-                response = requests.get(url)
+                cf_headers = {}
+                cf_id = os.getenv("CF_ACCESS_CLIENT_ID", "")
+                cf_secret = os.getenv("CF_ACCESS_CLIENT_SECRET", "")
+                if cf_id and cf_secret:
+                    cf_headers = {"CF-Access-Client-Id": cf_id, "CF-Access-Client-Secret": cf_secret}
+                response = requests.get(url, headers=cf_headers)
                 response.raise_for_status()
-                suffix = os.path.splitext(url)[1]
+                suffix = os.path.splitext(url.split("?")[0])[1]
                 if not suffix:
                     suffix = ".wav"
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:

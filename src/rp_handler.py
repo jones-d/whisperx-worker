@@ -12,7 +12,8 @@ import torch
 import numpy as np
 import runpod
 from runpod.serverless.utils.rp_validator import validate
-from runpod.serverless.utils import download_files_from_urls, rp_cleanup
+import urllib.request
+from runpod.serverless.utils import rp_cleanup
 
 from rp_schema import INPUT_VALIDATIONS
 from predict import Predictor, Output
@@ -22,6 +23,20 @@ from speaker_processing import (
     free_embed_model, free_ecapa_model,
     _SPEAKER_EMBEDDING_CACHE,
 )
+
+CF_CLIENT_ID = os.getenv("CF_ACCESS_CLIENT_ID", "")
+CF_CLIENT_SECRET = os.getenv("CF_ACCESS_CLIENT_SECRET", "")
+
+
+def _download_url(url: str, dest_path: str) -> None:
+    """Download url to dest_path, injecting CF Access service token headers."""
+    req = urllib.request.Request(url)
+    if CF_CLIENT_ID and CF_CLIENT_SECRET:
+        req.add_header("CF-Access-Client-Id", CF_CLIENT_ID)
+        req.add_header("CF-Access-Client-Secret", CF_CLIENT_SECRET)
+    with urllib.request.urlopen(req) as resp, open(dest_path, "wb") as f:
+        f.write(resp.read())
+
 
 # ---------------------------------------------------------------------------
 # Performance: enable TF32 for faster matmul on Ampere+ GPUs (L40S, A100, H100)
@@ -124,8 +139,12 @@ def run(job):
     audio_input = job_input["audio_file"]
     try:
         if "://" in audio_input:
-            # Standard URL — download as before
-            audio_file_path = download_files_from_urls(job_id, [audio_input])[0]
+            # Derive filename from URL so ffmpeg auto-detects format (e.g. .m4a, .mp3)
+            url_path = audio_input.split("?")[0].rstrip("/")
+            filename = url_path.split("/")[-1] or "audio"
+            audio_file_path = f"/jobs/{job_id}/{filename}"
+            os.makedirs(f"/jobs/{job_id}", exist_ok=True)
+            _download_url(audio_input, audio_file_path)
             logger.debug(f"Audio downloaded → {audio_file_path}")
         else:
             # Treat as base64-encoded audio data
